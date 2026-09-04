@@ -53,6 +53,13 @@ jobs:
       - name: Deutsche Texte patchen
         run: python scripts/patch_apk.py decoded translations/de.json
 
+      - name: Eigene App-ID für parallele Installation setzen
+        run: |
+          python scripts/clone_package.py decoded \
+            --old-package com.ucremote.android \
+            --new-package com.ucremote.android.de
+          grep -n "renameManifestPackage" decoded/apktool.yml
+
       - name: APK neu bauen
         run: apktool b decoded -o UC_Remote_DE-unsigned.apk
 
@@ -101,6 +108,12 @@ jobs:
         run: |
           "${{ steps.buildtools.outputs.path }}/apksigner" verify --verbose --print-certs \
             "UC_Remote_DE-${{ inputs.version }}.apk"
+
+      - name: Paketnamen prüfen
+        run: |
+          BADGING="$("${{ steps.buildtools.outputs.path }}/aapt" dump badging "UC_Remote_DE-${{ inputs.version }}.apk" | head -n1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -q "name='com.ucremote.android.de'"
 
       - name: Build-Artefakt hochladen
         uses: actions/upload-artifact@v4
