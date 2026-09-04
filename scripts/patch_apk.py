@@ -18,6 +18,7 @@ def load_translations(path: pathlib.Path) -> dict[str, str]:
 def patch_tree(root: pathlib.Path, translations: dict[str, str]) -> tuple[dict[str, int], int]:
     hits = {source: 0 for source in translations}
     changed_files = 0
+    ordered_translations = sorted(translations.items(), key=lambda item: len(item[0]), reverse=True)
 
     for file_path in root.rglob("*"):
         if not file_path.is_file() or file_path.suffix.lower() not in TEXT_EXTENSIONS:
@@ -29,7 +30,7 @@ def patch_tree(root: pathlib.Path, translations: dict[str, str]) -> tuple[dict[s
             continue
 
         patched = original
-        for source, target in translations.items():
+        for source, target in ordered_translations:
             count = patched.count(source)
             if count:
                 patched = patched.replace(source, target)
@@ -51,13 +52,17 @@ def main() -> int:
 
     translations = load_translations(args.translations)
     hits, changed_files = patch_tree(args.decoded_dir, translations)
-
     missing = [source for source, count in hits.items() if count == 0]
 
     print(f"Geänderte Dateien: {changed_files}")
+    print(f"Übersetzungen gesamt: {len(translations)}")
+    print(f"Gefunden: {len(translations) - len(missing)}")
+    print(f"Nicht gefunden: {len(missing)}")
+
     print("\nGefundene Übersetzungen:")
     for source, count in hits.items():
-        print(f"  {count:3d}x  {source}")
+        if count:
+            print(f"  {count:3d}x  {source}")
 
     if missing:
         print("\nWARNUNG: Folgende Texte wurden nicht gefunden:", file=sys.stderr)
