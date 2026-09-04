@@ -4,18 +4,31 @@ import pathlib
 import re
 import sys
 
-ANDROID_NS = "http://schemas.android.com/apk/res/android"
-
 
 def patch_apktool_yml(path: pathlib.Path, new_package: str) -> None:
     text = path.read_text(encoding="utf-8")
-    pattern = re.compile(r"(?m)^renameManifestPackage:\s*.*$")
-    if pattern.search(text):
-        text = pattern.sub(f"renameManifestPackage: {new_package}", text, count=1)
+
+    # apktool stores renameManifestPackage indented below packageInfo.
+    # Preserve the existing indentation and replace the value in place.
+    pattern = re.compile(r"(?m)^(?P<indent>\s*)renameManifestPackage:\s*.*$")
+    match = pattern.search(text)
+    if match:
+        indent = match.group("indent")
+        text = pattern.sub(
+            lambda m: f"{indent}renameManifestPackage: {new_package}",
+            text,
+            count=1,
+        )
     else:
-        if not text.endswith("\n"):
-            text += "\n"
-        text += f"renameManifestPackage: {new_package}\n"
+        # Fallback: insert it directly below packageInfo with normal YAML indentation.
+        package_info = re.compile(r"(?m)^(?P<indent>\s*)packageInfo:\s*$")
+        match = package_info.search(text)
+        if not match:
+            raise RuntimeError("packageInfo in apktool.yml nicht gefunden")
+        child_indent = match.group("indent") + "  "
+        insert_at = match.end()
+        text = text[:insert_at] + f"\n{child_indent}renameManifestPackage: {new_package}" + text[insert_at:]
+
     path.write_text(text, encoding="utf-8", newline="")
 
 
@@ -83,9 +96,23 @@ def main() -> int:
         print("FEHLER: apktool.yml oder AndroidManifest.xml fehlt.", file=sys.stderr)
         return 2
 
-    patch_apktool_yml(apktool_yml, args.new_package)
+    try:
+        patch_apktool_yml(apktool_yml, args.new_package)
+    except RuntimeError as exc:
+        print(f"FEHLER: {exc}", file=sys.stderr)
+        return 3
+
     manifest_changes = patch_manifest(manifest, args.old_package, args.new_package)
     label_changes = patch_app_label(decoded_dir)
+
+    # Fail early if the apktool rename setting was not actually written.
+    yml = apktool_yml.read_text(encoding="utf-8")
+    expected = re.compile(
+        r"(?m)^\s*renameManifestPackage:\s*" + re.escape(args.new_package) + r"\s*$"
+    )
+    if not expected.search(yml):
+        print("FEHLER: renameManifestPackage wurde nicht korrekt gesetzt.", file=sys.stderr)
+        return 4
 
     print(f"Neue App-ID: {args.new_package}")
     print(f"Manifest-Zusatzanpassungen: {manifest_changes}")
