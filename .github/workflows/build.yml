@@ -3,13 +3,10 @@ name: Build UC Remote DE
 on:
   workflow_dispatch:
     inputs:
-      apk_url:
-        description: "Direkte Download-URL der originalen UC-Remote-APK"
-        required: true
-        type: string
       version:
-        description: "Versionsname für das Build-Artefakt (z. B. 1.2.3)"
+        description: "Versionsname für das Build-Artefakt (z. B. 2.2.0)"
         required: true
+        default: "2.2.0"
         type: string
 
 permissions:
@@ -44,12 +41,11 @@ jobs:
           chmod +x apktool
           sudo mv apktool /usr/local/bin/apktool
 
-      - name: Original-APK herunterladen
-        env:
-          APK_URL: ${{ inputs.apk_url }}
+      - name: Original-APK prüfen
         run: |
-          curl --fail --location "$APK_URL" --output UC_Remote_original.apk
-          test -s UC_Remote_original.apk
+          test -s input/UC_Remote_base.apk
+          cp input/UC_Remote_base.apk UC_Remote_original.apk
+          echo "Original-APK gefunden: $(stat -c%s UC_Remote_original.apk) Bytes"
 
       - name: APK dekompilieren
         run: apktool d -f UC_Remote_original.apk -o decoded
@@ -65,6 +61,7 @@ jobs:
         shell: bash
         run: |
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          test -n "$BUILD_TOOLS"
           echo "path=$BUILD_TOOLS" >> "$GITHUB_OUTPUT"
 
       - name: APK zipalign
@@ -81,6 +78,7 @@ jobs:
             exit 1
           fi
           echo "$KEYSTORE_B64" | base64 --decode > uc-remote-de.keystore
+          test -s uc-remote-de.keystore
 
       - name: APK signieren
         env:
@@ -98,7 +96,7 @@ jobs:
 
       - name: Signatur prüfen
         run: |
-          "${{ steps.buildtools.outputs.path }}/apksigner" verify --verbose \
+          "${{ steps.buildtools.outputs.path }}/apksigner" verify --verbose --print-certs \
             "UC_Remote_DE-${{ inputs.version }}.apk"
 
       - name: Build-Artefakt hochladen
