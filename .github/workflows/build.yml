@@ -1,0 +1,109 @@
+name: Build UC Remote DE
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: "Direkte Download-URL der originalen UC-Remote-APK"
+        required: true
+        type: string
+      version:
+        description: "Versionsname für das Build-Artefakt (z. B. 1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Java einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Android Build Tools installieren
+        uses: android-actions/setup-android@v3
+
+      - name: apktool installieren
+        run: |
+          curl -L -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          printf '#!/bin/sh\nexec java -jar "$GITHUB_WORKSPACE/apktool.jar" "$@"\n' > apktool
+          chmod +x apktool
+          sudo mv apktool /usr/local/bin/apktool
+
+      - name: Original-APK herunterladen
+        env:
+          APK_URL: ${{ inputs.apk_url }}
+        run: |
+          curl --fail --location "$APK_URL" --output UC_Remote_original.apk
+          test -s UC_Remote_original.apk
+
+      - name: APK dekompilieren
+        run: apktool d -f UC_Remote_original.apk -o decoded
+
+      - name: Deutsche Texte patchen
+        run: python scripts/patch_apk.py decoded translations/de.json
+
+      - name: APK neu bauen
+        run: apktool b decoded -o UC_Remote_DE-unsigned.apk
+
+      - name: Build Tools Pfad bestimmen
+        id: buildtools
+        shell: bash
+        run: |
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          echo "path=$BUILD_TOOLS" >> "$GITHUB_OUTPUT"
+
+      - name: APK zipalign
+        run: |
+          "${{ steps.buildtools.outputs.path }}/zipalign" -f -p 4 \
+            UC_Remote_DE-unsigned.apk UC_Remote_DE-aligned.apk
+
+      - name: Signierschlüssel vorbereiten
+        env:
+          KEYSTORE_B64: ${{ secrets.UC_REMOTE_DE_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "Secret UC_REMOTE_DE_KEYSTORE_B64 fehlt." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 --decode > uc-remote-de.keystore
+
+      - name: APK signieren
+        env:
+          KS_ALIAS: ${{ secrets.UC_REMOTE_DE_KEY_ALIAS }}
+          KS_PASS: ${{ secrets.UC_REMOTE_DE_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.UC_REMOTE_DE_KEY_PASSWORD }}
+        run: |
+          "${{ steps.buildtools.outputs.path }}/apksigner" sign \
+            --ks uc-remote-de.keystore \
+            --ks-key-alias "$KS_ALIAS" \
+            --ks-pass "pass:$KS_PASS" \
+            --key-pass "pass:$KEY_PASS" \
+            --out "UC_Remote_DE-${{ inputs.version }}.apk" \
+            UC_Remote_DE-aligned.apk
+
+      - name: Signatur prüfen
+        run: |
+          "${{ steps.buildtools.outputs.path }}/apksigner" verify --verbose \
+            "UC_Remote_DE-${{ inputs.version }}.apk"
+
+      - name: Build-Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: UC-Remote-DE-${{ inputs.version }}
+          path: UC_Remote_DE-${{ inputs.version }}.apk
+          if-no-files-found: error
