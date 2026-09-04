@@ -84,13 +84,16 @@ jobs:
         env:
           KS_ALIAS: ${{ secrets.UC_REMOTE_DE_KEY_ALIAS }}
           KS_PASS: ${{ secrets.UC_REMOTE_DE_KEYSTORE_PASSWORD }}
-          KEY_PASS: ${{ secrets.UC_REMOTE_DE_KEY_PASSWORD }}
         run: |
+          if [ -z "$KS_ALIAS" ] || [ -z "$KS_PASS" ]; then
+            echo "Signing-Secrets Alias oder Keystore-Passwort fehlen." >&2
+            exit 1
+          fi
+
           "${{ steps.buildtools.outputs.path }}/apksigner" sign \
             --ks uc-remote-de.keystore \
             --ks-key-alias "$KS_ALIAS" \
             --ks-pass "pass:$KS_PASS" \
-            --key-pass "pass:$KEY_PASS" \
             --out "UC_Remote_DE-${{ inputs.version }}.apk" \
             UC_Remote_DE-aligned.apk
 
