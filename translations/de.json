@@ -1,0 +1,14 @@
+{
+  "Configure a remote to continue": "Richte eine Fernbedienung ein, um fortzufahren",
+  "Connecting...": "Verbindung wird hergestellt...",
+  "Wrong PIN code": "Falscher PIN-Code",
+  "Access denied - check PIN": "Zugriff verweigert – PIN prüfen",
+  "Activities": "Aktivitäten",
+  "Devices": "Geräte",
+  "Export Configuration": "Konfiguration exportieren",
+  "Export Logs": "Protokolle exportieren",
+  "Haptic feedback": "Haptisches Feedback",
+  "Loading entities...": "Entitäten werden geladen...",
+  "Edit Group": "Gruppe bearbeiten",
+  "Wake on LAN packet sent": "Wake-on-LAN-Paket gesendet"
+}
