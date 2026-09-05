@@ -32,7 +32,34 @@ def patch_apktool_yml(path: pathlib.Path, new_package: str) -> None:
     path.write_text(text, encoding="utf-8", newline="")
 
 
-def patch_manifest(path: pathlib.Path, old_package: str, new_package: str) -> int:
+def remove_split_requirements(text: str) -> tuple[str, int]:
+    """Remove App-Bundle split requirements so the rebuilt APK is standalone-installable."""
+    changes = 0
+
+    # Attributes commonly added to the base APK of an Android App Bundle.
+    for attr in ("isSplitRequired", "requiredSplitTypes", "splitTypes"):
+        pattern = re.compile(rf'\s+android:{attr}="[^"]*"')
+        text, count = pattern.subn("", text)
+        changes += count
+
+    # Google Play / bundletool metadata declaring that additional split APKs are required.
+    split_metadata_names = (
+        "com.android.vending.splits",
+        "com.android.vending.splits.required",
+        "com.android.vending.splits.id",
+    )
+    for name in split_metadata_names:
+        pattern = re.compile(
+            r'\s*<meta-data\b(?=[^>]*android:name="' + re.escape(name) + r'")[^>]*/>\s*',
+            re.DOTALL,
+        )
+        text, count = pattern.subn("\n", text)
+        changes += count
+
+    return text, changes
+
+
+def patch_manifest(path: pathlib.Path, old_package: str, new_package: str) -> tuple[int, int]:
     text = path.read_text(encoding="utf-8")
     original = text
 
@@ -53,10 +80,14 @@ def patch_manifest(path: pathlib.Path, old_package: str, new_package: str) -> in
 
     text = re.sub(r'<(?:permission|uses-permission)\b[^>]*>', patch_permission_tag, text)
 
+    # The source APK is a base APK from a split/App-Bundle install. Our rebuilt APK
+    # is a single standalone APK, therefore it must not require companion splits.
+    text, split_changes = remove_split_requirements(text)
+
     if text != original:
         path.write_text(text, encoding="utf-8", newline="")
-        return 1
-    return 0
+        return 1, split_changes
+    return 0, split_changes
 
 
 def patch_app_label(decoded_dir: pathlib.Path) -> int:
@@ -102,7 +133,7 @@ def main() -> int:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 3
 
-    manifest_changes = patch_manifest(manifest, args.old_package, args.new_package)
+    manifest_changes, split_changes = patch_manifest(manifest, args.old_package, args.new_package)
     label_changes = patch_app_label(decoded_dir)
 
     # Fail early if the apktool rename setting was not actually written.
@@ -114,8 +145,24 @@ def main() -> int:
         print("FEHLER: renameManifestPackage wurde nicht korrekt gesetzt.", file=sys.stderr)
         return 4
 
+    # Fail early if known split requirements survived the manifest patch.
+    manifest_text = manifest.read_text(encoding="utf-8")
+    forbidden_split_markers = (
+        'android:isSplitRequired=',
+        'android:requiredSplitTypes=',
+        'android:splitTypes=',
+        'android:name="com.android.vending.splits.required"',
+    )
+    leftovers = [marker for marker in forbidden_split_markers if marker in manifest_text]
+    if leftovers:
+        print("FEHLER: Split-Anforderung ist noch im Manifest vorhanden:", file=sys.stderr)
+        for marker in leftovers:
+            print(f"  - {marker}", file=sys.stderr)
+        return 5
+
     print(f"Neue App-ID: {args.new_package}")
     print(f"Manifest-Zusatzanpassungen: {manifest_changes}")
+    print(f"Entfernte Split-Anforderungen: {split_changes}")
     print(f"App-Label-Ressourcen geändert: {label_changes}")
     return 0
 
