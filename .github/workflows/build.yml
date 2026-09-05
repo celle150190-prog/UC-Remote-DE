@@ -115,6 +115,17 @@ jobs:
           echo "$BADGING"
           echo "$BADGING" | grep -q "name='com.ucremote.android.de'"
 
+      - name: Standalone-APK auf Split-Anforderungen prüfen
+        shell: bash
+        run: |
+          MANIFEST_DUMP="$("${{ steps.buildtools.outputs.path }}/aapt" dump xmltree "UC_Remote_DE-${{ inputs.version }}.apk" AndroidManifest.xml)"
+          if echo "$MANIFEST_DUMP" | grep -Eqi 'isSplitRequired|requiredSplitTypes|com\.android\.vending\.splits\.required'; then
+            echo "FEHLER: APK verlangt weiterhin zusätzliche Splits." >&2
+            echo "$MANIFEST_DUMP" | grep -Ei 'isSplitRequired|requiredSplitTypes|com\.android\.vending\.splits\.required' >&2 || true
+            exit 1
+          fi
+          echo "OK: Keine erforderlichen Splits im Manifest gefunden."
+
       - name: Build-Artefakt hochladen
         uses: actions/upload-artifact@v4
         with:
